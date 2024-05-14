@@ -1,0 +1,9 @@
+<q2>
+    <server class="org.jpos.q2.iso.QServer" logger="Q2" realm="default">
+        <property name="port" value="8000"/>
+        <property name="packager" value="org.jpos.iso.packager.GenericPackager">
+            <property name="packager-config" value="packager/genericpackager.xml"/>
+        </property>
+<!--        <request-listener class="ekenya.co.ke.iso8583server.isoconfig.ISO8583RequestListener"/>-->
+    </server>
+</q2>
