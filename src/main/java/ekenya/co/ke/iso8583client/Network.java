@@ -1,5 +1,7 @@
 package ekenya.co.ke.iso8583client;
 
+import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.jpos.iso.ISODate;
 import org.jpos.iso.ISOException;
 import org.jpos.iso.ISOMsg;
@@ -9,47 +11,94 @@ import org.jpos.iso.packager.GenericPackager;
 import java.io.IOException;
 import java.util.Date;
 import java.util.Random;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.stereotype.Service;
+
+@Service
+@Slf4j
 public class Network {
 
-    public static void main(String... args) throws ISOException, IOException {
+    @Autowired
+    TaskScheduler taskScheduler;
 
-        GenericPackager packager = new GenericPackager("./packager/genericpackager.xml");
+    ScheduledExecutorService executorService =
+            Executors.newSingleThreadScheduledExecutor();
 
-        ASCIIChannel asciiChannel = new ASCIIChannel("localhost", 8000, packager);
+    @PostConstruct
+    public void init() throws ISOException, IOException{
 
-        // connect
-        asciiChannel.connect(); // make a connection to the server
-
-        // send a sign on request
+        if (!Utils.createChannel()) {
+            throw new RuntimeException();
+        }
 
         ISOMsg isoMsg = new ISOMsg();
         isoMsg.setMTI("0800");
         isoMsg.set(7, ISODate.getDateTime(new Date()));
-        isoMsg.set(11, String.valueOf(generateSixDigitNumber()));
+        isoMsg.set(11, String.valueOf(Utils.generateSixDigitNumber()));
         isoMsg.set(48, "10000000");
 
         System.out.println(isoMsg);
 
-        asciiChannel.send(isoMsg);
+        Utils.getChannel().send(isoMsg);
 
-        ISOMsg response = asciiChannel.receive();
+        ISOMsg response = Utils.getChannel().receive();
 
         System.out.println("Received response with MTI: " + response.getMTI());
-        if (response.hasField(39)) {
-            System.out.println("Response Code (Field 39): " + response.getString(39));
+        if (!response.hasField(39)) {
+            throw new RuntimeException();
         }
 
-        // Disconnect after sending the message
-        asciiChannel.disconnect();
+        String responseCode =  response.getString(39).trim();
+
+
+        if (responseCode.equalsIgnoreCase("000")) {
+
+            // successful sign on, proceed and send echo messages
+
+            System.out.println("executing runnable");
+            Runnable runnable = () -> {
+                try {
+                    runEcho();
+                } catch (ISOException | IOException e) {
+                    throw new RuntimeException(e);
+                }
+            };
+
+           executorService.scheduleAtFixedRate(runnable, 5, 10, TimeUnit.SECONDS);
+
+            System.out.println("runnable executed");
+        }
 
     }
 
-    public static int generateSixDigitNumber() {
-        Random random = new Random();
-        int min = 100000;
-        int max = 999999;
-        return random.nextInt(max - min + 1) + min;
+    public void runEcho() throws ISOException, IOException {
+
+        System.out.println("running echo");
+
+        ISOMsg isoMsg = new ISOMsg();
+        isoMsg.setMTI("0800");
+        isoMsg.set(7, ISODate.getDateTime(new Date()));
+        isoMsg.set(11, String.valueOf(Utils.generateSixDigitNumber()));
+        isoMsg.set(48, "30000000");
+
+        System.out.println(isoMsg);
+
+        log.info("sending echo to the server {}", isoMsg.getString(11));
+
+        Utils.getChannel().send(isoMsg);
+
+        ISOMsg response = Utils.getAsciiChannelNetwork().receive();
+
+        System.out.println("Received response with MTI: " + response.getMTI());
+        if (response.hasField(39)) {
+            log.info("echo STAn {} | Response Code (Field 39): {}",response.getString(11)
+                    ,response.getString(39));
+        }
     }
 
 
